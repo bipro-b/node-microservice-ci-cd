@@ -109,8 +109,41 @@ jobs:
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
             # Pull latest images for this tag & restart
-            docker compose pull
-            docker compose up -d
+            # docker compose pull
+            # docker compose up -d
+            # Stop & remove existing containers (if any)
+            docker rm -f product-service payment-service user-service gateway-service || true
+            
+            # Pull latest images from Docker Hub
+            docker pull ${DOCKERHUB_USERNAME}/product-service:${IMAGE_TAG}
+            docker pull ${DOCKERHUB_USERNAME}/payment-service:${IMAGE_TAG}
+            docker pull ${DOCKERHUB_USERNAME}/user-service:${IMAGE_TAG}
+            docker pull ${DOCKERHUB_USERNAME}/gateway-service:${IMAGE_TAG}
+            
+            # Run containers individually
+            docker run -d --name product-service -p 3001:3001 \
+              -e NODE_ENV=production \
+              -e PORT=3001 \
+              ${DOCKERHUB_USERNAME}/product-service:${IMAGE_TAG}
+            
+            docker run -d --name payment-service -p 3002:3002 \
+              -e NODE_ENV=production \
+              -e PORT=3002 \
+              ${DOCKERHUB_USERNAME}/payment-service:${IMAGE_TAG}
+            
+            docker run -d --name user-service -p 3003:3003 \
+              -e NODE_ENV=production \
+              -e PORT=3003 \
+              ${DOCKERHUB_USERNAME}/user-service:${IMAGE_TAG}
+            
+            docker run -d --name gateway-service -p 3000:3000 \
+              -e NODE_ENV=production \
+              -e PORT=8080 \
+              -e PRODUCT_URL=http://localhost:3001 \
+              -e PAYMENT_URL=http://localhost:3002 \
+              -e USER_URL=http://localhost:3003 \
+              ${DOCKERHUB_USERNAME}/gateway-service:${IMAGE_TAG}
+
 
             # Prune unused images to save disk
             docker image prune -af || true
