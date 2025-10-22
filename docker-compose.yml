@@ -1,0 +1,73 @@
+version: "3.9"
+
+services:
+  product-service:
+    build: ./product-service
+    image: ${DOCKERHUB_USERNAME}/product-service:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/product-service/health"]
+      interval: 10s
+      timeout: 2s
+      retries: 6
+      start_period: 10s
+
+  payment-service:
+    build: ./payment-service
+    image: ${DOCKERHUB_USERNAME}/payment-service:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+    ports:
+      - "3002:3002"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3002/api/payment-service/health"]
+      interval: 10s
+      timeout: 2s
+      retries: 6
+      start_period: 10s
+
+  user-service:
+    build: ./user-service
+    image: ${DOCKERHUB_USERNAME}/user-service:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3003
+    ports:
+      - "3003:3003"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3003/api/user-service/health"]
+      interval: 10s
+      timeout: 2s
+      retries: 6
+      start_period: 10s
+
+  gateway-service:
+    build: ./gateway-service
+    image: ${DOCKERHUB_USERNAME}/gateway-service:${IMAGE_TAG}
+    depends_on:
+      - product-service
+      - payment-service
+      - user-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      PRODUCT_URL: http://product-service:3001
+      PAYMENT_URL: http://payment-service:3002
+      USER_URL: http://user-service:3003
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/gateway/health"]
+      interval: 10s
+      timeout: 2s
+      retries: 6
+      start_period: 10s
