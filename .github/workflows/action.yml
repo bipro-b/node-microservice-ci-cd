@@ -1,0 +1,116 @@
+name: CI-CD DockerHub → EC2
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  REGISTRY: docker.io
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - product-service
+          - payment-service
+          - user-service
+          - gateway-service
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set short SHA
+        id: vars
+        run: echo "SHORT_SHA=${IMAGE_TAG::7}" >> $GITHUB_OUTPUT
+
+      - name: Build & Push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ./micro-service/${{ matrix.service }}
+          file: ./micro-service/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ steps.vars.outputs.SHORT_SHA }}
+            ${{ env.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest
+          cache-from: type=registry,ref=${{ env.DOCKERHUB_USERNAME }}/${{ matrix.service }}:buildcache
+          cache-to: type=registry,ref=${{ env.DOCKERHUB_USERNAME }}/${{ matrix.service }}:buildcache,mode=max
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "SHORT_SHA=${{ github.sha }}" | cut -c1-7 | awk '{print "SHORT_SHA="$1}' >> $GITHUB_OUTPUT
+
+      # Copy docker-compose.yml to EC2 (optional: you can keep it there permanently)
+      - name: Copy compose to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "micro-service/docker-compose.yml"
+          target: "~/app/"
+
+      - name: Remote deploy on EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            # Install Docker & compose plugin if not present (Amazon Linux 2023 example)
+            if ! command -v docker >/dev/null 2>&1; then
+              sudo yum update -y || true
+              sudo yum install -y docker
+              sudo systemctl enable docker
+              sudo systemctl start docker
+              sudo usermod -aG docker $USER || true
+            fi
+            if ! docker compose version >/dev/null 2>&1; then
+              DOCKER_COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep tag_name | cut -d '"' -f 4)
+              sudo curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+              sudo chmod +x /usr/local/bin/docker-compose
+              sudo ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
+            fi
+
+            mkdir -p ~/app
+            cd ~/app
+
+            # Write/update .env for compose
+            cat > .env <<EOF
+            DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+            IMAGE_TAG=${{ steps.vars.outputs.SHORT_SHA }}
+            EOF
+
+            echo "Using IMAGE_TAG=$(cat .env | grep IMAGE_TAG | cut -d= -f2)"
+
+            # Login to DockerHub (pull permission)
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+            # Pull latest images for this tag & restart
+            docker compose pull
+            docker compose up -d
+
+            # Prune unused images to save disk
+            docker image prune -af || true
