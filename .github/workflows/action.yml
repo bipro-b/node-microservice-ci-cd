@@ -81,8 +81,8 @@ jobs:
             set -e
             # Install Docker & compose plugin if not present (Amazon Linux 2023 example)
             if ! command -v docker >/dev/null 2>&1; then
-              sudo yum update -y || true
-              sudo yum install -y docker
+              sudo apt update -y || true
+              sudo apt install -y docker
               sudo systemctl enable docker
               sudo systemctl start docker
               sudo usermod -aG docker $USER || true
