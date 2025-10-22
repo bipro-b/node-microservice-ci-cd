@@ -62,14 +62,14 @@ jobs:
         run: echo "SHORT_SHA=${{ github.sha }}" | cut -c1-7 | awk '{print "SHORT_SHA="$1}' >> $GITHUB_OUTPUT
 
       # Copy docker-compose.yml to EC2 (optional: you can keep it there permanently)
-      - name: Copy compose to EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "micro-service/docker-compose.yml"
-          target: "~/app/"
+      # - name: Copy compose to EC2
+      #   uses: appleboy/scp-action@v0.1.7
+      #   with:
+      #     host: ${{ secrets.EC2_HOST }}
+      #     username: ${{ secrets.EC2_USER }}
+      #     key: ${{ secrets.EC2_SSH_KEY }}
+      #     source: "micro-service/docker-compose.yml"
+      #     target: "~/app/"
 
       - name: Remote deploy on EC2
         uses: appleboy/ssh-action@v1.2.0
